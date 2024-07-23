@@ -6,7 +6,7 @@ It implements a PyTorch Parquet dataset and dataloader that support streaming an
 
 It highlights in:
 
-* Streamingly load large parquet dataset, eg HIVE tables stored with parquet format. 
+* Streamingly load large parquet dataset, eg. Hive tables stored with parquet format. 
 
 * Almost zero-redundancy loading across ranks & workers when distributed training.
 
