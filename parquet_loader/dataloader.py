@@ -54,7 +54,7 @@ class DistParquetDataLoader(DataLoader):
     ):  
         dataset.set_shuffle(shuffle)
         dataset.set_drop_last(drop_last)
-        self._num_batches = dataset.get_num_batches(batch_size, drop_last)
+        self._num_batches = dataset.get_num_batches(batch_size)
         
         # reset arguments
         shuffle = False

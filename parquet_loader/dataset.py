@@ -13,9 +13,9 @@ from torch.utils.data import IterableDataset
 from .utils import (
     ParquetMetadata, 
     detect_distributed_env, 
-    detect_worker_env,
-    associate_row_groups_to_workers
+    detect_worker_env
 )
+from .shuffle import NoShuffler, FullShuffler
 
 
 class DistParquetDataset(IterableDataset):
@@ -40,44 +40,37 @@ class DistParquetDataset(IterableDataset):
         self.column_names = column_names or ds.schema.names
         del ds
 
-        
-        self.world_size, self.global_rank, self.num_nodes = detect_distributed_env()
-        self.num_workers, self.worker_rank = detect_worker_env()
-        ##NOTE: user should ensure the num_worker are same across ranks
-        self.index = 0
-
-    
 
     def __len__(self):
         if not hasattr(self, 'num_rows'):
-            self.intervals, self.num_rows = associate_row_groups_to_workers(
-                metas=self.metas, 
-                world_size=self.world_size, 
-                num_workers=self.num_workers,
-                current_rank=self.global_rank,
-                current_worker_rank=self.worker_rank,
-                batch_size=self.batch_size
-            )
+            self.num_rows = sum([m.num_rows for m in self.metas])
         return self.num_rows
     
     def set_shuffle(self, shuffle: bool) -> None:
         self.shuffle = shuffle
-
+        self.shuffler = FullShuffler() if shuffle else NoShuffler()
+    
     def set_drop_last(self, drop_last: bool) -> None:
         self.drop_last = drop_last
     
-    def get_num_batches(self, batch_size=1, drop_last=False):
+
+    def get_num_batches(self, batch_size=1):
+        assert hasattr(self, 'drop_last'), 'call `set_drop_last` before call `get_num_batches`'
         self.batch_size = batch_size
-        self.drop_last = drop_last
-        if drop_last:
+        if self.drop_last:
             return len(self) // batch_size 
         else: 
             return (len(self) + batch_size - 1) // batch_size
 
+
     def __iter__(self):
         assert hasattr(self, 'batch_size'), 'call `get_num_batches` before call `__iter__`'
+        assert hasattr(self, 'drop_last'), 'call `set_drop_last` before call `__iter__`'
+        assert hasattr(self, 'shuffler'), 'call `set_shuffle` before call `__iter__`'
+        self.world_size, self.global_rank, self.num_nodes = detect_distributed_env()
+        self.num_workers, self.worker_rank = detect_worker_env()
         if not hasattr(self, 'intervals'):
-            self.intervals, self.num_rows = associate_row_groups_to_workers(
+            self.intervals, self.num_rows = self.shuffler.associate_row_groups_to_workers(
                     metas=self.metas, 
                     world_size=self.world_size, 
                     num_workers=self.num_workers,
@@ -86,7 +79,7 @@ class DistParquetDataset(IterableDataset):
                     batch_size=self.batch_size
                 )
         return self.iter_batch()
-        # return self
+
 
     def __getitem__(self, index: int) -> pd.DataFrame:
         global_index = 0
@@ -97,14 +90,6 @@ class DistParquetDataset(IterableDataset):
                 table = f.read_row_group(itv.row_group_index)
                 f.close()
                 return table.slice(index - (global_index -(itv.local_row_end - itv.local_row_start)),1).to_pydict()
-
-    # def __next__(self):
-    #     if self.index >= len(self):
-    #         raise StopIteration
-    #     data = self.__getitem__(self.index)
-    #     self.index += 1
-
-    #     return data
 
 
     def iter_batch(self):
