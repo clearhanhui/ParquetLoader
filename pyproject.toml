@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "parquet_loader"
-version = "0.2"
+dynamic = ["version"]
 dependencies = [
   "pandas",
   "pyarrow",
@@ -14,7 +14,6 @@ requires-python = ">=3.8"
 authors = [
   {name = "clearhanhui", email = "clearhanhui@gmail.com"},
 ]
-
 description = "Streaming and Distributed PyTorch Dataloader for Parquet."
 readme = "readme.md"
 license = {file = "LICENSE"}
@@ -22,6 +21,9 @@ keywords = ["Parquet",  "PyTorch", "Distributed"]
 classifiers = [
   "Programming Language :: Python :: 3",
 ]
+
+[tool.hatch.version]
+path = "parquet_loader/__init__.py"
 
 [project.urls]
 Homepage = "https://github.com/clearhanhui/ParquetLoader"

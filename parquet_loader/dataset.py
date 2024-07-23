@@ -108,7 +108,8 @@ class DistParquetDataset(IterableDataset):
                 else:
                     while num_rows_need < 0:
                         table_left = pa.concat_tables(tables)
-                        batch_data = table_left.slice(0, self.batch_size).to_pandas().to_numpy()
+                        batch_data = table_left.slice(0, self.batch_size)\
+                                    .to_pandas(split_blocks=True, self_destruct=True).to_numpy()
                         yield batch_data
                         tables = [table_left.slice(self.batch_size)] # reset tables
                         num_rows_need += self.batch_size
@@ -116,6 +117,7 @@ class DistParquetDataset(IterableDataset):
 
         # last batch, it may not be full batch
         table_left = pa.concat_tables(tables)
-        batch_data = table_left.slice(0, self.batch_size).to_pandas().to_numpy()
+        batch_data = table_left.slice(0, self.batch_size)\
+                    .to_pandas(split_blocks=True, self_destruct=True).to_numpy()
         yield batch_data
 
