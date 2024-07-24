@@ -84,12 +84,14 @@ class DistParquetDataset(IterableDataset):
     def __getitem__(self, index: int) -> pd.DataFrame:
         global_index = 0
         for itv in self.intervals:
-            global_index += (itv.local_row_end - itv.local_row_start)
+            offset = itv.local_row_end - itv.local_row_start
+            global_index += offset
             if global_index > index:
                 f = pq.ParquetFile(self.metas[itv.file_index])
-                table = f.read_row_group(itv.row_group_index)
+                table = f.read_row_group(itv.row_group_index).select(self.column_names)
                 f.close()
-                return table.slice(index - (global_index -(itv.local_row_end - itv.local_row_start)),1).to_pydict()
+                return table.slice(index - (global_index - offset), 1)\
+                       .to_pandas(split_blocks=True, self_destruct=True).to_numpy()
 
 
     def iter_batch(self):
