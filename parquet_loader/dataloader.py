@@ -2,8 +2,12 @@ import logging
 from typing import List, Callable, Any, Iterable
 
 import torch
-from torch.utils.data import Dataset, DataLoader, Sampler
-from torch.utils.data.dataloader import default_collate
+from torch.utils.data import DataLoader, Sampler
+from torch.utils.data.dataloader import (
+    _BaseDataLoaderIter,
+    _SingleProcessDataLoaderIter as TorchSingleProcessDataLoaderIter,
+    _MultiProcessingDataLoaderIter as TorchMultiProcessingDataLoaderIter,
+)
 
 from .dataset import DistParquetDataset
 
@@ -11,23 +15,25 @@ from .dataset import DistParquetDataset
 logger = logging.getLogger(__name__)
 
 
-def squeezed_wrapper(fn):
-    # squeeze the output of the wrapped function
-    def squeeze_output(outputs):
-        if isinstance(outputs, torch.Tensor):
-            return torch.squeeze(outputs, 0)
-        elif isinstance(outputs, (list, tuple)):
-            return [squeeze_output(output) for output in outputs]
-        elif isinstance(outputs, dict):
-            return {key: squeeze_output(value) for key, value in outputs.items()}
-        else:
-            return outputs
+def squeeze_first_dim(data):
+    if isinstance(data, torch.Tensor):
+        return torch.squeeze(data, 0)
+    elif isinstance(data, (list, tuple)):
+        return [squeeze_first_dim(output) for output in data]
+    elif isinstance(data, dict):
+        return {key: squeeze_first_dim(value) for key, value in data.items()}
+    else:
+        return data
+
+class _SingleProcessDataLoaderIter(TorchSingleProcessDataLoaderIter):
+    def _next_data(self):
+        data = super()._next_data()
+        return squeeze_first_dim(data)
     
-    def wrapper(*args, **kwargs):
-        outputs = fn(*args, **kwargs)
-        return squeeze_output(outputs)
-    
-    return wrapper
+class _MultiProcessingDataLoaderIter(TorchMultiProcessingDataLoaderIter):
+    def _next_data(self):
+        data = super()._next_data()
+        return squeeze_first_dim(data)
 
 
 
@@ -63,9 +69,6 @@ class DistParquetDataLoader(DataLoader):
         if sampler is not None:
             logger.warning("`sampler` option is not supported in DistParquetDataLoader")
             sampler = None
-        if collate_fn is None:
-            collate_fn = default_collate
-        collate_fn = squeezed_wrapper(collate_fn)
 
         super().__init__(
             dataset=dataset, 
@@ -90,3 +93,9 @@ class DistParquetDataLoader(DataLoader):
     def __len__(self) -> int:
         return self._num_batches
     
+    def _get_iterator(self) -> '_BaseDataLoaderIter':
+        if self.num_workers == 0:
+            return _SingleProcessDataLoaderIter(self)
+        else:
+            self.check_worker_number_rationality()
+            return _MultiProcessingDataLoaderIter(self)

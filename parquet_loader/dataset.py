@@ -39,6 +39,7 @@ class DistParquetDataset(IterableDataset):
         ]
         self.column_names = column_names or ds.schema.names
         del ds
+        self.world_size, self.global_rank, self.num_nodes = detect_distributed_env()
 
 
     def __len__(self):
@@ -67,7 +68,6 @@ class DistParquetDataset(IterableDataset):
         assert hasattr(self, 'batch_size'), 'call `get_num_batches` before call `__iter__`'
         assert hasattr(self, 'drop_last'), 'call `set_drop_last` before call `__iter__`'
         assert hasattr(self, 'shuffler'), 'call `set_shuffle` before call `__iter__`'
-        self.world_size, self.global_rank, self.num_nodes = detect_distributed_env()
         self.num_workers, self.worker_rank = detect_worker_env()
         if not hasattr(self, 'intervals'):
             self.intervals, self.num_rows = self.shuffler.associate_row_groups_to_workers(
