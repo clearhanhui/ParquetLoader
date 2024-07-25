@@ -1,9 +1,9 @@
-from .dataset import DistParquetDataset
-from .dataloader import DistParquetDataLoader
+from .dataset import ParquetDataset
+from .dataloader import ParquetDataLoader
 
 __version__ = '0.2'
 
 __all__ = [
-    'DistParquetDataset',
-    'DistParquetDataLoader'
+    'ParquetDataset',
+    'ParquetDataLoader'
 ]

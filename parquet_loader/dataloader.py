@@ -9,7 +9,7 @@ from torch.utils.data.dataloader import (
     _MultiProcessingDataLoaderIter as TorchMultiProcessingDataLoaderIter,
 )
 
-from .dataset import DistParquetDataset
+from .dataset import ParquetDataset
 
 
 logger = logging.getLogger(__name__)
@@ -37,10 +37,10 @@ class _MultiProcessingDataLoaderIter(TorchMultiProcessingDataLoaderIter):
 
 
 
-class DistParquetDataLoader(DataLoader):
+class ParquetDataLoader(DataLoader):
     def __init__(
         self, 
-        dataset: DistParquetDataset, 
+        dataset: ParquetDataset, 
         batch_size: int | None = 1, 
         shuffle: bool | None = None, 
         sampler: Sampler | Iterable | None = None, 
@@ -67,7 +67,7 @@ class DistParquetDataLoader(DataLoader):
         batch_size = 1
         drop_last = False
         if sampler is not None:
-            logger.warning("`sampler` option is not supported in DistParquetDataLoader")
+            logger.warning("`sampler` option is not supported in ParquetDataLoader")
             sampler = None
 
         super().__init__(

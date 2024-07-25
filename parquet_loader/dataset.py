@@ -18,7 +18,7 @@ from .utils import (
 from .shuffle import NoShuffler, FullShuffler
 
 
-class DistParquetDataset(IterableDataset):
+class ParquetDataset(IterableDataset):
     def __init__(
         self, 
         path: str,

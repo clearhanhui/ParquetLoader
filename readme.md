@@ -1,8 +1,8 @@
-# Parquet Dataloader
+# ParquetLoader
 
 
 This project is inspired by [litdata](https://github.com/Lightning-AI/litdata).
-It implements a PyTorch Parquet dataset and dataloader that support streaming and distributed loading.
+It implements a torch dataset and dataloader that support streaming and distributed loading parquet dataset.
 
 It highlights in:
 
@@ -30,10 +30,18 @@ pip install .
 ## Usage
 
 ```python 
-# Usage
-from parquet_loader import DistParquetDataset,  DistParquetDataLoader
-dataset = DistParquetDataset('/path/to/parquet/dataset')
-dataloader = DistParquetDataLoader(dataset)
+from parquet_loader import ParquetDataset, ParquetDataLoader
+dataset = ParquetDataset('/path/to/parquet/dataset')
+dataloader = ParquetDataLoader(dataset)
 ```
+
+## Benchmark
+
+||||
+|-|-|-| 
+||Time(s)|Memory(MB)|
+|Torch|3.041|153|
+|ParquetLoader|7.290|610|
+
 
 For more, see `test.py` and `benchmark.py`.
