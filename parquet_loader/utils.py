@@ -1,5 +1,5 @@
 import os
-from typing import Any, List, Tuple, Dict, Union
+from typing import List, Tuple, Dict
 
 import torch
 import numpy as np
@@ -20,13 +20,13 @@ class RowGroupInterval:
 
 @dataclass
 class ParquetMetadata:
-    name: str
+    file_path: str
     num_rows: int = 0
     num_row_groups: int = 0
     num_rows_per_row_group: list = field(default_factory=list)
 
 
-def associate_row_groups_to_workers(
+def associate_to_workers(
     metas: List[ParquetMetadata],
     world_size: int = 1,
     num_workers: int = 1,
@@ -142,24 +142,3 @@ def detect_worker_env():
     return num_workers, current_worker_rank
 
 
-if __name__ == '__main__':
-    test_metas = [
-        ParquetMetadata(
-            name = str(i),
-            num_rows = 4,
-            num_row_groups = 2,
-            num_rows_per_row_group = [2 for _ in range(2)]
-        ) for i in range(2)
-    ]
-    intervals, num_rows = associate_row_groups_to_workers(
-        test_metas, 
-        world_size=1, 
-        num_workers=1, 
-        current_rank=0, 
-        current_worker_rank=0,
-        drop_last=False,
-        batch_size=11,
-    )
-    print(num_rows)
-    for idx, itv in intervals.items():
-        print(itv)

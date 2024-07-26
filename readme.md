@@ -8,7 +8,7 @@ It highlights in:
 
 * Streamingly load large parquet dataset, eg. Hive tables stored with parquet format. 
 * Almost zero-redundancy loading across ranks & workers when distributed training.
-* (TODO) Preload asynchronously for better efficiency.
+* Preload asynchronously to overlap training and loading for better efficiency.
 
 It also has limitations:
 
@@ -29,19 +29,29 @@ pip install .
 
 ## Usage
 
-```python 
+``` python 
 from parquet_loader import ParquetDataset, ParquetDataLoader
 dataset = ParquetDataset('/path/to/parquet/dataset')
 dataloader = ParquetDataLoader(dataset)
 ```
 
+See examples in [tests](./tests).
+
 ## Benchmark
 
-||||
-|-|-|-| 
-||Time(s)|Memory(MB)|
-|Torch|3.041|153|
-|ParquetLoader|7.290|610|
+* fullly loading vs streaming loading
+
+  |                   | Time(s) | Memory(MB) |
+  | ----------------- | ------- | ---------- |
+  | fullly loading    | 3.041   | 153        |
+  | streaming loading | 7.290   | 610        |
 
 
-For more, see `test.py` and `benchmark.py`.
+* synchronous loading vs asynchronous loading
+
+  |                      | Time(s) |
+  | -------------------- | ------- |
+  | synchronous loading  | 39.204  |
+  | asynchronous loading | 25.854  |
+
+See full results in [benckmarks](./benchmarks).

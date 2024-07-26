@@ -11,11 +11,10 @@ def run(rank):
         rank=rank,
         world_size=world_size,
     )
-    dataset = ParquetDataset(parquet_path)
+    dataset = ParquetDataset(parquet_path, async_read=True)
     dataloader = ParquetDataLoader(dataset, batch_size=66, shuffle=True, num_workers=2)
     for i, batch in enumerate(dataloader):
-        if rank == 0:
-            print(rank, i, batch.shape)
+        # print(f"{rank}, {i}, {batch.shape}")
         dist.barrier() 
 
 

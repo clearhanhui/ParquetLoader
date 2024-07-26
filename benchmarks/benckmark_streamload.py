@@ -1,7 +1,8 @@
+"""
+This script benchmarks the streaming load and full load of a parquet dataset.
+"""
+
 import torch
-import numpy as np
-import pandas as pd
-import pyarrow as pa
 import pyarrow.dataset as ds
 from torch.utils.data import TensorDataset, DataLoader
 from parquet_loader import ParquetDataset, ParquetDataLoader

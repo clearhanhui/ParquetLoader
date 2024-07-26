@@ -2,8 +2,9 @@ import copy
 from typing import List, Dict, Tuple
 
 import numpy as np
+import pyarrow as pa
 
-from .utils import ParquetMetadata, RowGroupInterval, associate_row_groups_to_workers
+from .utils import ParquetMetadata, RowGroupInterval, associate_to_workers
 
 
 class Shuffler:
@@ -12,7 +13,7 @@ class Shuffler:
         self.seed = seed
         self.rng = np.random.default_rng(seed)
     
-    def associate_row_groups_to_workers(
+    def associate_to_workers(
         self,
         metas: List[ParquetMetadata],
         world_size: int = 1,
@@ -31,7 +32,7 @@ class Shuffler:
 class NoShuffler(Shuffler):
     """No shuffle."""
 
-    def associate_row_groups_to_workers(
+    def associate_to_workers(
         self,
         metas: List[ParquetMetadata],
         world_size: int = 1,
@@ -42,7 +43,7 @@ class NoShuffler(Shuffler):
         batch_size: int = 1,
     ) -> Tuple[Dict[int, List[RowGroupInterval]], int]:  
         
-        return associate_row_groups_to_workers(
+        return associate_to_workers(
             metas=metas, 
             world_size=world_size, 
             num_workers=num_workers,
@@ -52,13 +53,13 @@ class NoShuffler(Shuffler):
             batch_size=batch_size
         )
 
-    def shuffle(self, data: np.ndarray) -> np.ndarray:
+    def shuffle(self, data: pa.Table) -> pa.Table:
         return data
 
 
 class FullShuffler(Shuffler):
     """Full shuffle."""
-    def associate_row_groups_to_workers(
+    def associate_to_workers(
         self,
         metas: List[ParquetMetadata],
         world_size: int = 1,
@@ -73,7 +74,7 @@ class FullShuffler(Shuffler):
         metas = copy.deepcopy(metas)
         self.rng.shuffle(metas)
 
-        intervals, num_rows = associate_row_groups_to_workers(
+        intervals, num_rows = associate_to_workers(
             metas=metas, 
             world_size=world_size, 
             num_workers=num_workers,
@@ -89,7 +90,8 @@ class FullShuffler(Shuffler):
 
         return intervals, num_rows
     
-    def shuffle(self, data: np.ndarray) -> np.ndarray:
-        self.rng.shuffle(data)
-        return data
+
+    def shuffle(self, data: pa.Table) -> pa.Table:
+        indices = self.rng.permutation(len(data))
+        return data.take(indices)
 
