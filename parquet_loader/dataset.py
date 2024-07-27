@@ -1,3 +1,4 @@
+import logging
 from typing import List, Optional
 
 import pandas as pd
@@ -15,6 +16,9 @@ from .shuffle import NoShuffler, FullShuffler
 from .reader import SyncParquetReader, AsyncParquetReader
 
 
+logger = logging.getLogger(__name__)
+
+
 class ParquetDataset(IterableDataset):
     def __init__(
         self, 
@@ -22,8 +26,47 @@ class ParquetDataset(IterableDataset):
         column_names: Optional[List[str]] = None,
         async_read: bool = False,
         max_preload: int = 1
-    ):
-        _ds = ds.dataset(path)
+    ):  
+        self.path = path
+        self.column_names = column_names
+        self.async_read = async_read
+        self.max_preload = max_preload
+        self.reader = AsyncParquetReader(self.max_preload) \
+                      if async_read and max_preload > 0 else \
+                      SyncParquetReader(self.max_preload)
+        self.world_size, self.global_rank, self.num_nodes = detect_distributed_env()
+        self.batch_size = 1
+
+
+    def __len__(self):
+        if not hasattr(self, 'num_rows'):
+            self._associate_to_workers()
+        return self.num_rows
+    
+    def set_shuffle(self, shuffle: bool) -> None:
+        self.shuffle = shuffle
+        self.shuffler = FullShuffler() if shuffle else NoShuffler()
+    
+    def set_drop_last(self, drop_last: bool) -> None:
+        self.drop_last = drop_last
+
+    def set_batch_size(self, batch_size: int) -> None:
+        self.batch_size = batch_size
+
+    def get_num_batches(self, batch_size=None):
+        assert hasattr(self, 'drop_last'), 'call `set_drop_last` before call `get_num_batches`'
+        batch_size = batch_size or self.batch_size
+        if self.drop_last:
+            return len(self) // batch_size 
+        else: 
+            return (len(self) + batch_size - 1) // batch_size
+
+
+    def _try_fetch_metadata(self):
+        if hasattr(self, 'metas'):
+            return 
+
+        _ds = ds.dataset(self.path)
         self.metas = [
             ParquetMetadata(
                 file_path=f.path,
@@ -36,38 +79,12 @@ class ParquetDataset(IterableDataset):
             )
             for f in _ds.get_fragments()
         ]
-        self.column_names = column_names or _ds.schema.names
+        self.column_names = self.column_names or _ds.schema.names
         del _ds
-        self.world_size, self.global_rank, self.num_nodes = detect_distributed_env()
-        self.async_read = async_read
-        self.max_preload = max_preload
-        Reader = AsyncParquetReader if async_read and max_preload > 0 else SyncParquetReader
-        self.reader = Reader(self.max_preload)
-
-
-    def __len__(self):
-        if not getattr(self, 'num_rows', None):
-            self._associate_to_workers()
-        return self.num_rows
-    
-    def set_shuffle(self, shuffle: bool) -> None:
-        self.shuffle = shuffle
-        self.shuffler = FullShuffler() if shuffle else NoShuffler()
-    
-    def set_drop_last(self, drop_last: bool) -> None:
-        self.drop_last = drop_last
     
 
-    def get_num_batches(self, batch_size=1):
-        assert hasattr(self, 'drop_last'), 'call `set_drop_last` before call `get_num_batches`'
-        self.batch_size = batch_size
-        if self.drop_last:
-            return len(self) // batch_size 
-        else: 
-            return (len(self) + batch_size - 1) // batch_size
-
-    
     def _associate_to_workers(self):
+        self._try_fetch_metadata()
         self.num_workers, self.worker_rank = detect_worker_env()
         self.intervals, self.num_rows = self.shuffler.associate_to_workers(
             metas=self.metas, 
@@ -88,16 +105,19 @@ class ParquetDataset(IterableDataset):
 
 
     def __getitem__(self, index: int) -> pd.DataFrame:
+        logger.warning("call `__getitem__` is inefficient, only for test usage.")
+        self._try_fetch_metadata()
         global_index = 0
-        for itv in self.intervals:
-            offset = itv.local_row_end - itv.local_row_start
-            global_index += offset
-            if global_index > index:
-                f = pq.ParquetFile(self.metas[itv.file_index])
-                table = f.read_row_group(itv.row_group_index).select(self.column_names)
-                f.close()
-                return table.slice(index - (global_index - offset), 1)\
-                       .to_pandas(split_blocks=True, self_destruct=True).to_numpy()
+        for itvs in self.intervals:
+            for itv in itvs:
+                offset = itv.local_row_end - itv.local_row_start
+                global_index += offset
+                if global_index > index:
+                    f = pq.ParquetFile(self.metas[itv.file_index])
+                    table = f.read_row_group(itv.row_group_index).select(self.column_names)
+                    f.close()
+                    return table.slice(index - (global_index - offset), 1)\
+                        .to_pandas(split_blocks=True, self_destruct=True).to_numpy()
 
 
     def iter_batch(self):
@@ -123,8 +143,11 @@ class ParquetDataset(IterableDataset):
                 tables = [table_left] # reset tables
 
         # last batch, it may not be full batch
-        table_left = pa.concat_tables(tables)
-        batch_data = table_left.slice(0, self.batch_size)\
-                     .to_pandas(split_blocks=True, self_destruct=True).to_numpy()
-        yield batch_data
+        if len(tables) > 0:
+            table_left = pa.concat_tables(tables)
+            if table_left.shape[0] == 0:
+                return
+            batch_data = table_left.slice(0, self.batch_size)\
+                        .to_pandas(split_blocks=True, self_destruct=True).to_numpy()
+            yield batch_data
 

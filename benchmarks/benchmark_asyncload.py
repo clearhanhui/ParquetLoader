@@ -8,7 +8,7 @@ from pyinstrument.profiler import Profiler as time_profiler
 from parquet_loader import ParquetDataset, ParquetDataLoader
 from parquet_loader.reader import AsyncParquetReader, SyncParquetReader
 
-path = 'synthetic_data'
+path = '../synthetic_data'
 delay_in_seconds = 0.01
 
 

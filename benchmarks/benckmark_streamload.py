@@ -10,7 +10,7 @@ from pyinstrument.profiler import Profiler as time_profiler
 from memory_profiler import profile as mem_profile
 
 ## config
-path = 'synthetic_data'
+path = '../synthetic_data'
 num_workers = 4
 batch_size = 66
 

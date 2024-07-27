@@ -22,7 +22,7 @@ class Shuffler:
         current_worker_rank: int = 0,
         drop_last: bool = False,
         batch_size: int = 1,
-    ) -> Tuple[Dict[int, List[RowGroupInterval]], int]:  
+    ) -> Tuple[List[List[RowGroupInterval]], int]:  
         raise NotImplementedError
 
     def shuffle(self, data: np.ndarray) -> np.ndarray:
@@ -41,7 +41,7 @@ class NoShuffler(Shuffler):
         current_worker_rank: int = 0,
         drop_last: bool = False,
         batch_size: int = 1,
-    ) -> Tuple[Dict[int, List[RowGroupInterval]], int]:  
+    ) -> Tuple[List[List[RowGroupInterval]], int]:  
         
         return associate_to_workers(
             metas=metas, 
@@ -68,7 +68,7 @@ class FullShuffler(Shuffler):
         current_worker_rank: int = 0,
         drop_last: bool = False,
         batch_size: int = 1,
-    ) -> Tuple[Dict[int, List[RowGroupInterval]], int]:  
+    ) -> Tuple[List[List[RowGroupInterval]], int]:  
         
         # shuffle files
         metas = copy.deepcopy(metas)
@@ -85,7 +85,7 @@ class FullShuffler(Shuffler):
         )
 
         # shuffle row groups
-        for fi, itvs in intervals.items():
+        for itvs in intervals:
             self.rng.shuffle(itvs)
 
         return intervals, num_rows

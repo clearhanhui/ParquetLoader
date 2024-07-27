@@ -16,7 +16,7 @@ class Reader:
     def __init__(self, max_preload: int = 1):
         self.max_preload = max_preload
     
-    def setup(self, metas: List[ParquetMetadata],  intervals: Dict[int, List[RowGroupInterval]]):
+    def setup(self, metas: List[ParquetMetadata],  intervals: List[List[RowGroupInterval]]):
         self.metas = metas
         self.intervals = intervals
 
@@ -39,8 +39,8 @@ class SyncParquetReader(Reader):
 
     @property
     def table_iterator(self):
-        for fi, itvs in self.intervals.items():
-            with self._open_parquet_file(self.metas[fi].file_path) as pf:
+        for itvs in self.intervals:
+            with self._open_parquet_file(self.metas[itvs[0].file_index].file_path) as pf:
                 for itv in itvs:
                     offset = itv.local_row_end - itv.local_row_start
                     yield pf.read_row_group(itv.row_group_index).slice(itv.local_row_start, offset)
@@ -52,10 +52,15 @@ class AsyncParquetReader(Reader):
     _END_TOKEN = "_END"
     _DEFAULT_TIMEOUT = 1
 
-    def _preload(self, metas, intervals, queue):
+    def _preload(
+        self, 
+        metas: List[ParquetMetadata], 
+        intervals: List[List[RowGroupInterval]],
+        queue: Queue
+    ):
         try:
-            for fi, itvs in intervals.items():
-                with self._open_parquet_file(metas[fi].file_path) as pf:
+            for itvs in intervals:
+                with self._open_parquet_file(metas[itvs[0].file_index].file_path) as pf:
                     for itv in itvs:
                         offset = itv.local_row_end - itv.local_row_start
                         table = pf.read_row_group(itv.row_group_index).slice(itv.local_row_start, offset)

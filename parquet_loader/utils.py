@@ -1,4 +1,5 @@
 import os
+import copy 
 from typing import List, Tuple, Dict
 
 import torch
@@ -34,27 +35,32 @@ def associate_to_workers(
     current_worker_rank: int = 0,
     drop_last: bool = False,
     batch_size: int = 1,
-) -> Tuple[Dict[int, List[RowGroupInterval]], int]:  
+) -> Tuple[List[List[RowGroupInterval]], int]:  
     
     total_num_rows = sum([meta.num_rows for meta in metas])
+    rank0_extra_rows = total_num_rows % world_size # rank 0 may get extra rows
     num_rows_per_ranks = [
-        total_num_rows // world_size + total_num_rows % world_size # TODO: check its correctness
-        if rank == world_size - 1 and not drop_last
+        total_num_rows // world_size + rank0_extra_rows
+        if rank == 0 and not drop_last
         else total_num_rows // world_size
         for rank in range(world_size)
     ]
+    ratio = num_workers * batch_size
     if drop_last:
-        ratio = num_workers * batch_size
-        num_rows_per_ranks = [ratio * int(item // ratio) for item in num_rows_per_ranks]
-    num_rows_per_workers = np.array([
-        [   
-            num_rows_per_ranks[rank] // num_workers + num_rows_per_ranks[rank] % num_workers
-            if worker_rank == 0 and not drop_last # worker 0 gets the remainder
-            else num_rows_per_ranks[rank] // num_workers
-            for worker_rank in range(num_workers)
-        ]
-        for rank in range(world_size)
-    ])
+        num_rows_per_ranks = [ratio * int(rows // ratio) for rows in num_rows_per_ranks]
+    
+    num_rows_per_rank_worker = []
+    for rank in range(world_size):
+        rank_extra_rows = num_rows_per_ranks[rank] % ratio
+        num_rows_per_worker = []
+        for worker_rank in range(num_workers):
+            worker_num_rows = num_rows_per_ranks[rank] // ratio * batch_size
+            if rank_extra_rows > 0:
+                worker_num_rows += min(rank_extra_rows, batch_size)
+                rank_extra_rows -= batch_size
+            num_rows_per_worker.append(worker_num_rows)
+        num_rows_per_rank_worker.append(num_rows_per_worker)
+    num_rows_per_rank_worker = np.array(num_rows_per_rank_worker)
 
     row_group_intervals = []
     global_rows = 0
@@ -68,11 +74,12 @@ def associate_to_workers(
         row_group_intervals.append(intervals_per_file)
 
 
-    start_row_index_per_workers = [0] + np.cumsum(num_rows_per_workers).tolist()
-    current_global_row_start = start_row_index_per_workers[current_rank * num_workers + current_worker_rank]
-    current_global_row_end = start_row_index_per_workers[current_rank * num_workers + current_worker_rank + 1]
-    current_intervals = {}
+    start_row_index_per_rank_worker = [0] + np.cumsum(num_rows_per_rank_worker).tolist()
+    current_global_row_start = start_row_index_per_rank_worker[current_rank * num_workers + current_worker_rank]
+    current_global_row_end = start_row_index_per_rank_worker[current_rank * num_workers + current_worker_rank + 1]
+    current_intervals = []
     for intervals_per_file in row_group_intervals:
+        current_file_itvs = []
         for itv in intervals_per_file:
             if itv.global_row_end <= current_global_row_start:
                 continue
@@ -88,13 +95,29 @@ def associate_to_workers(
                current_global_row_end < itv.global_row_end:
                 itv.local_row_end = current_global_row_end - itv.global_row_start
                 itv.global_row_end = current_global_row_end
-
-            if itv.file_index not in current_intervals:
-                current_intervals[itv.file_index] = [itv]
-            else:
-                current_intervals[itv.file_index].append(itv)
-                                                 
+            
+            current_file_itvs.append(itv)
+        if len(current_file_itvs) > 0:
+            current_intervals.append(current_file_itvs)
     
+    if not drop_last and rank0_extra_rows > 0:
+        for itvs in current_intervals:
+            current_file_itvs = []
+            for itv in itvs:
+                offset = itv.local_row_end - itv.local_row_start
+                rank0_extra_rows -= offset
+                itv = copy.deepcopy(itv)
+                if rank0_extra_rows > 0:
+                    current_file_itvs.append(itv)
+                else:
+                    itv.local_row_end += rank0_extra_rows
+                    itv.global_row_end += rank0_extra_rows
+                    current_file_itvs.append(itv)
+                    break
+            current_intervals.append(current_file_itvs)
+            if rank0_extra_rows <= 0:
+                break
+
     return current_intervals, current_global_row_end-current_global_row_start
 
 

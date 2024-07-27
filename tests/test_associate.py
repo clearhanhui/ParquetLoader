@@ -19,5 +19,6 @@ if __name__ == '__main__':
         batch_size=11,
     )
     print(num_rows)
-    for idx, itv in intervals.items():
-        print(itv)
+    for itvs in intervals:
+        for itv in itvs:
+            print(itv)

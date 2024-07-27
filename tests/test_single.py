@@ -1,7 +1,8 @@
 import torch.distributed as dist
 import torch.multiprocessing as mp
 from parquet_loader import ParquetDataset, ParquetDataLoader
-parquet_path = 'synthetic_data'
+
+parquet_path = '../synthetic_data'
 
 if __name__ == '__main__':
     dataset = ParquetDataset(parquet_path, async_read=True)

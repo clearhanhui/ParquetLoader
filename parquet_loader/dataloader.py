@@ -25,16 +25,17 @@ def squeeze_first_dim(data):
     else:
         return data
 
+
 class _SingleProcessDataLoaderIter(TorchSingleProcessDataLoaderIter):
     def _next_data(self):
         data = super()._next_data()
         return squeeze_first_dim(data)
-    
+
+
 class _MultiProcessingDataLoaderIter(TorchMultiProcessingDataLoaderIter):
     def _next_data(self):
         data = super()._next_data()
         return squeeze_first_dim(data)
-
 
 
 class ParquetDataLoader(DataLoader):
@@ -60,7 +61,7 @@ class ParquetDataLoader(DataLoader):
     ):  
         dataset.set_shuffle(shuffle)
         dataset.set_drop_last(drop_last)
-        self._num_batches = dataset.get_num_batches(batch_size)
+        dataset.set_batch_size(batch_size)
         
         # reset arguments
         shuffle = False
@@ -91,7 +92,9 @@ class ParquetDataLoader(DataLoader):
 
     
     def __len__(self) -> int:
-        return self._num_batches
+        if not hasattr(self, 'num_batches'):
+            self.num_batches = self.dataset.get_num_batches()
+        return self.num_batches
     
     def _get_iterator(self) -> '_BaseDataLoaderIter':
         if self.num_workers == 0:
