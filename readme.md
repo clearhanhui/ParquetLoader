@@ -2,19 +2,19 @@
 
 
 This project is inspired by [litdata](https://github.com/Lightning-AI/litdata).
-It implements a torch dataset and dataloader that support streaming and distributed loading parquet dataset.
+It implements a PyTorch dataset and dataloader that support streaming and distributed loading of [Parquet](https://parquet.apache.org/docs/) datasets.
 
-It highlights in:
+Key features:
 
-* Streamingly load large parquet dataset, eg. Hive tables stored with parquet format. 
-* Almost zero-redundancy loading across ranks & workers when distributed training.
-* Preload asynchronously to overlap training and loading for better efficiency.
+* Streaming loading of large Parquet datasets, e.g., Hive tables stored in Parquet format.
+* Near-zero redundancy loading across ranks & workers during distributed training.
+* Asynchronous preloading to overlap training and loading for better efficiency.
 
-It also has limitations:
+Limitations:
 
-* For small dataset its efficiency is lower than fully loading to memory.
-* For dataset only contains 1 or few parquet file(s) and row group(s), it will degenrate to full loading, and even worse.
-* Size of row group will affect the efficiency, it's suggested to set it to 1-1000 times of batch size.
+* Less efficient than full memory loading for small datasets.
+* Degrades to full loading (or worse) for datasets with only one or a few Parquet files/row groups.
+* Row group size affects efficiency; it's recommended to set it to 1-1000 times the batch size.
 
 ## Installation
 

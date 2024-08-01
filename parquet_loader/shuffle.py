@@ -1,10 +1,14 @@
 import copy
-from typing import List, Dict, Tuple
+from typing import List, Tuple
 
 import numpy as np
 import pyarrow as pa
 
-from .utils import ParquetMetadata, RowGroupInterval, associate_to_workers
+from .utils import (
+    ParquetMetadata, 
+    RowGroupInterval, 
+    associate_to_workers
+)
 
 
 class Shuffler:

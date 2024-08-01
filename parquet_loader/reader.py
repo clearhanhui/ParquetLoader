@@ -1,7 +1,7 @@
 import logging
 from queue import Empty, Queue
 from threading import Thread
-from typing import List, Dict
+from typing import List
 from contextlib import contextmanager
 
 import pyarrow.parquet as pq

@@ -8,13 +8,13 @@ import pyarrow.parquet as pq
 import pyarrow.dataset as ds
 from torch.utils.data import IterableDataset
 
+from .shuffle import NoShuffler, FullShuffler
+from .reader import SyncParquetReader, AsyncParquetReader
 from .utils import (
     ParquetMetadata, 
     detect_distributed_env, 
     detect_worker_env
 )
-from .shuffle import NoShuffler, FullShuffler
-from .reader import SyncParquetReader, AsyncParquetReader
 
 
 logger = logging.getLogger(__name__)
@@ -26,7 +26,8 @@ class ParquetDataset(IterableDataset):
         path: str,
         columns: Optional[List[str]] = None,
         async_read: bool = False,
-        max_preload: int = 1
+        max_preload: int = 1,
+        beta_fetch_metadata: bool = False
     ):  
         self.path = path
         self.columns = columns
@@ -37,6 +38,7 @@ class ParquetDataset(IterableDataset):
                       SyncParquetReader(self.columns, self.max_preload)
         self.world_size, self.global_rank, self.num_nodes = detect_distributed_env()
         self.batch_size = 1
+        self.beta_fetch_metadata = beta_fetch_metadata
 
 
     def __len__(self):
@@ -63,7 +65,11 @@ class ParquetDataset(IterableDataset):
             return (len(self) + batch_size - 1) // batch_size
 
     
-    def _beta_fetch_metadata(self, parquet_files, max_workers=10, num_files_per_worker=None):
+    def _beta_fetch_metadata_impl(self, path, max_workers=10, num_files_per_worker=None):
+        """
+        This is a beta version of `_fetch_metadata_impl`. In some cases, the `_fetch_metadata_impl`
+        may be very slow even running out of memory while fetching metadata. 
+        """
         def fetch_files_metadata(file_paths):
             try:
                 metas = []
@@ -83,6 +89,8 @@ class ParquetDataset(IterableDataset):
             except Exception as e:
                 return f"Error: {str(e)}"
 
+        _ds = ds.dataset(path)
+        parquet_files = _ds.files
         num_files_per_worker = num_files_per_worker or (len(parquet_files) + max_workers - 1) // max_workers
         total_num_threads = (len(parquet_files) + num_files_per_worker - 1) // num_files_per_worker
         parquet_files_per_threads = [
@@ -91,24 +99,15 @@ class ParquetDataset(IterableDataset):
         ]
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             metas_list = list(executor.map(fetch_files_metadata, parquet_files_per_threads))
+        metas = [m for metas in metas_list for m in metas]
+        columns = _ds.schema.names
+        del _ds
 
-        return [m for metas in metas_list for m in metas]
-
-
-    def _fetch_metadata(self, beta=True):
-        if hasattr(self, 'metas'):
-            return 
-
-        _ds = ds.dataset(self.path)
-
-        if beta:
-            metas = self._beta_fetch_metadata(_ds.files)
-            self.metas = metas
-            self.columns = self.columns or _ds.schema.names
-            del _ds
-            return
-        
-        self.metas = [
+        return metas, columns
+    
+    def _fetch_metadata_impl(self, path):
+        _ds = ds.dataset(path)
+        metas = [
             ParquetMetadata(
                 file_path=f.path,
                 num_rows=f.metadata.num_rows,
@@ -120,8 +119,22 @@ class ParquetDataset(IterableDataset):
             )
             for f in _ds.get_fragments()
         ]
-        self.columns = self.columns or _ds.schema.names
+        columns = _ds.schema.names
         del _ds
+
+        return metas, columns
+
+
+    def _fetch_metadata(self):
+        if hasattr(self, 'metas'):
+            return 
+
+        metas, all_columns = self._beta_fetch_metadata_impl(self.path) \
+                             if self.beta_fetch_metadata else \
+                             self._fetch_metadata_impl(self.path)
+
+        self.metas = metas
+        self.columns = self.columns or all_columns
     
 
     def _associate_to_workers(self):
@@ -157,8 +170,9 @@ class ParquetDataset(IterableDataset):
                     f = pq.ParquetFile(self.metas[itv.file_index])
                     table = f.read_row_group(itv.row_group_index)
                     f.close()
-                    return table.slice(index - (global_index - offset), 1)\
-                        .to_pandas(split_blocks=True, self_destruct=True).to_numpy()
+                    return table.slice(index - (global_index - offset), 1) \
+                                .to_pandas(split_blocks=True, self_destruct=True) \
+                                .to_numpy()
 
 
     def iter_batch(self):
@@ -176,8 +190,9 @@ class ParquetDataset(IterableDataset):
                 table_left = pa.concat_tables(tables)
                 table_left = self.shuffler.shuffle(table_left)
                 while num_rows_need <= 0:
-                    batch_data = table_left.slice(0, self.batch_size)\
-                                 .to_pandas(split_blocks=True, self_destruct=True).to_numpy()
+                    batch_data = table_left.slice(0, self.batch_size) \
+                                           .to_pandas(split_blocks=True, self_destruct=True) \
+                                           .to_numpy()
                     yield batch_data
                     table_left = table_left.slice(self.batch_size)
                     num_rows_need += self.batch_size
@@ -188,7 +203,8 @@ class ParquetDataset(IterableDataset):
             table_left = pa.concat_tables(tables)
             if table_left.shape[0] == 0:
                 return
-            batch_data = table_left.slice(0, self.batch_size)\
-                        .to_pandas(split_blocks=True, self_destruct=True).to_numpy()
+            batch_data = table_left.slice(0, self.batch_size) \
+                                   .to_pandas(split_blocks=True, self_destruct=True) \
+                                   .to_numpy()
             yield batch_data
 
