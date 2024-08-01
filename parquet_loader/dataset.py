@@ -1,5 +1,6 @@
 import logging
 from typing import List, Optional
+from concurrent.futures import ThreadPoolExecutor
 
 import pandas as pd
 import pyarrow as pa
@@ -61,12 +62,52 @@ class ParquetDataset(IterableDataset):
         else: 
             return (len(self) + batch_size - 1) // batch_size
 
+    
+    def _beta_fetch_metadata(self, parquet_files, max_workers=10, num_files_per_worker=None):
+        def fetch_files_metadata(file_paths):
+            try:
+                metas = []
+                for file_path in file_paths:
+                    f = pq.ParquetFile(file_path)
+                    metas.append(ParquetMetadata(
+                        file_path=file_path,
+                        num_rows=f.metadata.num_rows,
+                        num_row_groups=f.metadata.num_row_groups,
+                        num_rows_per_row_group=[
+                            f.metadata.row_group(i).num_rows 
+                            for i in range(f.metadata.num_row_groups)
+                        ]
+                    ))
+                    f.close()
+                return metas
+            except Exception as e:
+                return f"Error: {str(e)}"
 
-    def _try_fetch_metadata(self):
+        num_files_per_worker = num_files_per_worker or (len(parquet_files) + max_workers - 1) // max_workers
+        total_num_threads = (len(parquet_files) + num_files_per_worker - 1) // num_files_per_worker
+        parquet_files_per_threads = [
+            parquet_files[idx * num_files_per_worker : (idx + 1) * num_files_per_worker]
+            for idx in range(total_num_threads)
+        ]
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            metas_list = list(executor.map(fetch_files_metadata, parquet_files_per_threads))
+
+        return [m for metas in metas_list for m in metas]
+
+
+    def _fetch_metadata(self, beta=True):
         if hasattr(self, 'metas'):
             return 
 
         _ds = ds.dataset(self.path)
+
+        if beta:
+            metas = self._beta_fetch_metadata(_ds.files)
+            self.metas = metas
+            self.columns = self.columns or _ds.schema.names
+            del _ds
+            return
+        
         self.metas = [
             ParquetMetadata(
                 file_path=f.path,
@@ -84,7 +125,7 @@ class ParquetDataset(IterableDataset):
     
 
     def _associate_to_workers(self):
-        self._try_fetch_metadata()
+        self._fetch_metadata()
         self.num_workers, self.worker_rank = detect_worker_env()
         self.intervals, self.num_rows = self.shuffler.associate_to_workers(
             metas=self.metas, 
@@ -106,7 +147,7 @@ class ParquetDataset(IterableDataset):
 
     def __getitem__(self, index: int) -> pd.DataFrame:
         logger.warning("call `__getitem__` is inefficient, only for test usage.")
-        self._try_fetch_metadata()
+        self._fetch_metadata()
         global_index = 0
         for itvs in self.intervals:
             for itv in itvs:
