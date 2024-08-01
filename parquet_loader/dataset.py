@@ -23,17 +23,17 @@ class ParquetDataset(IterableDataset):
     def __init__(
         self, 
         path: str,
-        column_names: Optional[List[str]] = None,
+        columns: Optional[List[str]] = None,
         async_read: bool = False,
         max_preload: int = 1
     ):  
         self.path = path
-        self.column_names = column_names
+        self.columns = columns
         self.async_read = async_read
         self.max_preload = max_preload
-        self.reader = AsyncParquetReader(self.max_preload) \
+        self.reader = AsyncParquetReader(self.columns, self.max_preload) \
                       if async_read and max_preload > 0 else \
-                      SyncParquetReader(self.max_preload)
+                      SyncParquetReader(self.columns, self.max_preload)
         self.world_size, self.global_rank, self.num_nodes = detect_distributed_env()
         self.batch_size = 1
 
@@ -79,7 +79,7 @@ class ParquetDataset(IterableDataset):
             )
             for f in _ds.get_fragments()
         ]
-        self.column_names = self.column_names or _ds.schema.names
+        self.columns = self.columns or _ds.schema.names
         del _ds
     
 
@@ -114,7 +114,7 @@ class ParquetDataset(IterableDataset):
                 global_index += offset
                 if global_index > index:
                     f = pq.ParquetFile(self.metas[itv.file_index])
-                    table = f.read_row_group(itv.row_group_index).select(self.column_names)
+                    table = f.read_row_group(itv.row_group_index)
                     f.close()
                     return table.slice(index - (global_index - offset), 1)\
                         .to_pandas(split_blocks=True, self_destruct=True).to_numpy()
@@ -127,7 +127,7 @@ class ParquetDataset(IterableDataset):
         table_left = None
 
         for table in self.reader.table_iterator:
-            tables.append(table.select(self.column_names))
+            tables.append(table)
             num_rows_need -= table.shape[0]
             if num_rows_need > 0:
                 continue

@@ -13,7 +13,8 @@ logger = logging.getLogger(__name__)
 
 
 class Reader:
-    def __init__(self, max_preload: int = 1):
+    def __init__(self, columns, max_preload: int = 1):
+        self.columns = columns
         self.max_preload = max_preload
     
     def setup(self, metas: List[ParquetMetadata],  intervals: List[List[RowGroupInterval]]):
@@ -43,7 +44,8 @@ class SyncParquetReader(Reader):
             with self._open_parquet_file(self.metas[itvs[0].file_index].file_path) as pf:
                 for itv in itvs:
                     offset = itv.local_row_end - itv.local_row_start
-                    yield pf.read_row_group(itv.row_group_index).slice(itv.local_row_start, offset)
+                    yield pf.read_row_group(itv.row_group_index, self.columns)\
+                            .slice(itv.local_row_start, offset)
 
 
 class AsyncParquetReader(Reader):
@@ -63,7 +65,8 @@ class AsyncParquetReader(Reader):
                 with self._open_parquet_file(metas[itvs[0].file_index].file_path) as pf:
                     for itv in itvs:
                         offset = itv.local_row_end - itv.local_row_start
-                        table = pf.read_row_group(itv.row_group_index).slice(itv.local_row_start, offset)
+                        table = pf.read_row_group(itv.row_group_index, self.columns)\
+                                  .slice(itv.local_row_start, offset)
                         queue.put(table, block=True)
         except Exception as e:
             queue.put(e)
